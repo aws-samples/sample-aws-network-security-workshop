@@ -1,0 +1,44 @@
+# Allow TCP 3-way handshake
+pass tcp any any -> any any (flow:to_server,not_established; sid:10001;)
+
+# Mark MySQL connection from DEV to PROD sanitized database as allowed
+alert tcp $DEV_CIDR any -> $SANITIZED_PROD_DB 3306 (msg:"Allow DEV to PROD sanitized DB"; flowbits:set,allow; flow:to_server; sid:10002;)
+
+# Mark TLS connection from DEV to PROD internal API as allowed
+alert tls $DEV_CIDR any -> $PROD_INTERNAL_API 443 (msg:"Allow DEV to PROD internal API over TLS"; flowbits:set,allow; flow:to_server; sid:10003;)
+
+# Mark HTTP connection from DEV to PROD internal API as allowed
+alert http $DEV_CIDR any -> $PROD_INTERNAL_API 80 (msg:"Allow DEV to PROD internal API over HTTP"; flowbits:set,allow; flow:to_server; sid:10004;)
+
+# Reject any other TCP connections from DEV to PROD (Send a TCP reset so it's clear the connection was blocked by firewall and not a routing issue)
+reject tcp $DEV_CIDR any -> $PROD_CIDR any (msg:"UNAUTHORIZED DEV -> PROD TCP CONNECTION ATTEMPT"; flowbits:isnotset,allow; flow:to_server; sid:10005;)
+
+# Drop any other IP connections from DEV to PROD (Catch all drop rule for non TCP based protocols)
+drop ip $DEV_CIDR any -> $PROD_CIDR any (msg:"UNAUTHORIZED DEV -> PROD NON-TCP CONNECTION ATTEMPT"; flowbits:isnotset,allow; flow:to_server; ip_proto: !TCP; sid:10006;)
+
+# Block evasion of Route 53 Resolver (enforce the use of Route 53 Resolver DNS Firewall)
+drop dns $HOME_NET any -> !$HOME_NET any (msg:"Drop DNS protocol outbound on any port"; reference:url,https://attack.mitre.org/techniques/T1048/; sid:10000001;)
+
+# Port 80 can only be used for HTTP traffic
+drop tcp $HOME_NET any -> any 80 (msg:"Egress Port TCP/80 but not HTTP"; app-layer-protocol:!http; flow:to_server; sid:10000002;)
+
+# Outbound HTTP traffic must use port 80
+drop http $HOME_NET any -> any !80 (msg:"Egress HTTP but not port TCP/80"; flow:to_server; sid:10000003;)
+
+# Port 443 can only be used for TLS traffic
+drop tcp $HOME_NET any -> any 443 (msg:"Egress Port TCP/443 but not TLS"; app-layer-protocol:!tls; flow:to_server; sid:10000004;)
+
+# Outbound TLS traffic must use port 443
+drop tls $HOME_NET any -> any !443 (msg:"Egress TLS but not port TCP/443"; flow:to_server; sid:10000005;)
+
+# Port 22 can only be used for SSH traffic
+drop tcp $HOME_NET any -> any 22 (msg:"Egress Port TCP/22 but not SSH"; app-layer-protocol:!ssh; flow:to_server; sid:10000006;)
+
+# Outbound SSH traffic must use port 22
+drop ssh $HOME_NET any -> any !22 (msg:"Egress SSH but not port TCP/22"; flow:to_server; sid:10000007;)
+
+# Block Traffic To/From ITAR Countries 
+drop ip any any -> any any (msg:"Geographic IP is from ITAR-Restricted Country"; geoip:any,AF,BY,MM,KH,CF,CN,CU,CY,CD,ER,ET,HT,HK,IR,IQ,KG,LB,LY,NI,KP,RU,SO,SS,SD,SY,VE,ZW; sid:10000008;)
+
+# Block Traffic To/From Any Country Besides the US or Canada
+drop ip any any -> any any (geoip:any,!US,!CA; msg:"Drop traffic to countries other than US and Canada"; sid:10000009;)
