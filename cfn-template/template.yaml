@@ -8,7 +8,7 @@
 #CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 AWSTemplateFormatVersion: "2010-09-09"
-Description: "AWS Network Firewall Demo with Transit Gateway native attached network firewall architecture"
+Description: "AWS Network Firewall Demo with Transit Gateway native attached network firewall architecture (uksb-h57rukg0qz)"
 
 Metadata:
   "AWS::CloudFormation::Interface":
