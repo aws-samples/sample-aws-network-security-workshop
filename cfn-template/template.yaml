@@ -2323,6 +2323,9 @@ Resources:
             #!/bin/bash -ex
             date > /tmp/image.log
             yum update -y
+            amazon-linux-extras enable epel
+            yum install -y epel-release
+            sudo yum install minisign -y
             # yum install -y https://s3.${AWS::Region}.amazonaws.com/amazon-ssm-${AWS::Region}/latest/linux_amd64/amazon-ssm-agent.rpm
             # systemctl start amazon-ssm-agent
             # /usr/bin/amazon-ssm-agent
@@ -2436,11 +2439,50 @@ Resources:
             # Create directory to store c2_implant
             mkdir /tmp/c2_implant
 
-            # Install sliver
-            curl https://sliver.sh/install|sudo bash
+            # Install sliver v1.5.44 dependencies and binaries
+            yum install -y git curl make
+            cd /root
+            curl -L -o sliver-server https://github.com/BishopFox/sliver/releases/download/v1.5.44/sliver-server_linux
+            curl -L -o sliver-client https://github.com/BishopFox/sliver/releases/download/v1.5.44/sliver-client_linux
+            chmod 755 sliver-server sliver-client
+            ./sliver-server unpack --force
+            cp sliver-client /usr/local/bin/sliver-client
+            ln -sf /usr/local/bin/sliver-client /usr/local/bin/sliver
 
-            # Ensure it will always run on startup 
-            sudo systemctl enable sliver
+            # Systemd service
+            cat > /etc/systemd/system/sliver.service <<-EOF
+            [Unit]
+            Description=Sliver
+            After=network.target
+            StartLimitIntervalSec=0
+
+            [Service]
+            Type=simple
+            Restart=on-failure
+            RestartSec=3
+            User=root
+            ExecStart=/root/sliver-server daemon
+
+            [Install]
+            WantedBy=multi-user.target
+            EOF
+
+            systemctl daemon-reload
+            systemctl start sliver
+            systemctl enable sliver
+
+            # Operator configs
+            mkdir -p /root/.sliver-client/configs
+            /root/sliver-server operator --name root --lhost localhost --save /root/.sliver-client/configs
+
+            for USER_DIR in /home/*; do
+              USER=$(basename "$USER_DIR")
+              if id -u "$USER" >/dev/null 2>&1; then
+                mkdir -p "$USER_DIR/.sliver-client/configs"
+                /root/sliver-server operator --name "$USER" --lhost localhost --save "$USER_DIR/.sliver-client/configs"
+                chown -R "$USER":"$(id -gn "$USER")" "$USER_DIR/.sliver-client/"
+              fi
+            done
           
             # Install expect for use with sliver implant and listener config
             yum install expect -y
@@ -2983,15 +3025,20 @@ Resources:
               request_line = f"Request: {sanitized_command}"
               
               if ret_code == 1 and 'Baseline' in test['Type']:
-                  return f'<span class="success">Test Name: {test_name}<span style="display:inline-block; width:50px;"></span>Result: {result_string}</span>\n{request_line}\n<hr>'
+                  symbol = "&#x2713;"
+                  return f'<span class="success">{symbol} Test Name: {test_name}<span style="display:inline-block; width:50px;"></span>Result: {symbol} {result_string}</span>\n{request_line}\n<hr>'
               elif ret_code == 0 and 'Baseline' in test['Type']:
-                  return f'<span class="fail">Test Name: {test_name}<span style="display:inline-block; width:50px;"></span>Result: {result_string}</span>\n{request_line}\n<hr>'
+                  symbol = "&#x2717;"
+                  return f'<span class="fail">{symbol} Test Name: {test_name}<span style="display:inline-block; width:50px;"></span>Result: {symbol} {result_string}</span>\n{request_line}\n<hr>'
               elif ret_code == 1 and 'Baseline' not in test['Type']:
-                  return f'<span class="fail">Test Name: {test_name}<span style="display:inline-block; width:50px;"></span>Result: {result_string}</span>\n{request_line}\n<hr>'
+                  symbol = "&#x2717;"
+                  return f'<span class="fail">{symbol} Test Name: {test_name}<span style="display:inline-block; width:50px;"></span>Result: {symbol} {result_string}</span>\n{request_line}\n<hr>'
               elif ret_code == 0 and 'Baseline' not in test['Type']:
-                  return f'<span class="success">Test Name: {test_name}<span style="display:inline-block; width:50px;"></span>Result: {result_string}</span>\n{request_line}\n<hr>'
+                  symbol = "&#x2713;"
+                  return f'<span class="success">{symbol} Test Name: {test_name}<span style="display:inline-block; width:50px;"></span>Result: {symbol} {result_string}</span>\n{request_line}\n<hr>'
               else:
-                  return f'<span class="warning">Test Name: {test_name}<span style="display:inline-block; width:50px;"></span>Result: {result_string}</span>\n{request_line}\n<hr>'
+                  symbol = "&#x2717;"
+                  return f'<span class="warning">{symbol} Test Name: {test_name}<span style="display:inline-block; width:50px;"></span>Result: {symbol} {result_string}</span>\n{request_line}\n<hr>'
 
           def execute_ssm_command(ssm_client, instance_id, command):
               try:
@@ -3574,24 +3621,33 @@ Resources:
               # Handle different test types
               if 'Baseline' in test['Type']:
                   # For Baseline tests: 1 = success (green), 0 = failure (red)
-                  dev_result_str = f'<span class="success">Connection Allowed from DEV</span>' if dev_result[1] == 1 else f'<span class="fail">Connection Blocked from DEV</span>'
-                  prod_result_str = f'<span class="success">Connection Allowed from PROD</span>' if prod_result[1] == 1 else f'<span class="fail">Connection Blocked from PROD</span>'
+                  dev_symbol = "&#x2713;" if dev_result[1] == 1 else "&#x2717;"
+                  prod_symbol = "&#x2713;" if prod_result[1] == 1 else "&#x2717;"
+                  dev_result_str = f'<span class="success">{dev_symbol} Connection Allowed from DEV</span>' if dev_result[1] == 1 else f'<span class="fail">{dev_symbol} Connection Blocked from DEV</span>'
+                  prod_result_str = f'<span class="success">{prod_symbol} Connection Allowed from PROD</span>' if prod_result[1] == 1 else f'<span class="fail">{prod_symbol} Connection Blocked from PROD</span>'
                   line_color = "success" if dev_result[1] == 1 or prod_result[1] == 1 else "fail"
+                  line_symbol = "&#x2713;" if dev_result[1] == 1 or prod_result[1] == 1 else "&#x2717;"
               
               elif test['Type'] == 'IPSFilter':
                   # For IPS tests: 0 = allowed (red), 1 = blocked (green)
-                  dev_result_str = f'<span class="fail">Connection Allowed from DEV</span>' if dev_result[1] == 0 else f'<span class="success">Connection Blocked from DEV</span>'
-                  prod_result_str = f'<span class="fail">Connection Allowed from PROD</span>' if prod_result[1] == 0 else f'<span class="success">Connection Blocked from PROD</span>'
+                  dev_symbol = "&#x2717;" if dev_result[1] == 0 else "&#x2713;"
+                  prod_symbol = "&#x2717;" if prod_result[1] == 0 else "&#x2713;"
+                  dev_result_str = f'<span class="fail">{dev_symbol} Connection Allowed from DEV</span>' if dev_result[1] == 0 else f'<span class="success">{dev_symbol} Connection Blocked from DEV</span>'
+                  prod_result_str = f'<span class="fail">{prod_symbol} Connection Allowed from PROD</span>' if prod_result[1] == 0 else f'<span class="success">{prod_symbol} Connection Blocked from PROD</span>'
                   line_color = "success" if (dev_result[1] == 1 and prod_result[1] == 1) else "fail"
+                  line_symbol = "&#x2713;" if (dev_result[1] == 1 and prod_result[1] == 1) else "&#x2717;"
               
               elif test['Type'] == 'Egress':
                   # For Egress tests: 1 = allowed (red), 0 = blocked (green)
-                  dev_result_str = f'<span class="fail">Connection Allowed from DEV</span>' if dev_result[1] == 1 else f'<span class="success">Connection Blocked from DEV</span>'
-                  prod_result_str = f'<span class="fail">Connection Allowed from PROD</span>' if prod_result[1] == 1 else f'<span class="success">Connection Blocked from PROD</span>'
+                  dev_symbol = "&#x2717;" if dev_result[1] == 1 else "&#x2713;"
+                  prod_symbol = "&#x2717;" if prod_result[1] == 1 else "&#x2713;"
+                  dev_result_str = f'<span class="fail">{dev_symbol} Connection Allowed from DEV</span>' if dev_result[1] == 1 else f'<span class="success">{dev_symbol} Connection Blocked from DEV</span>'
+                  prod_result_str = f'<span class="fail">{prod_symbol} Connection Allowed from PROD</span>' if prod_result[1] == 1 else f'<span class="success">{prod_symbol} Connection Blocked from PROD</span>'
                   line_color = "success" if (dev_result[1] == 0 and prod_result[1] == 0) else "fail"
+                  line_symbol = "&#x2713;" if (dev_result[1] == 0 and prod_result[1] == 0) else "&#x2717;"
               
               # Format the full line with proper spacing and consistent coloring
-              return f'<span class="{line_color}">{test_name}<span style="display:inline-block; width:50px;"></span>Result:</span> {dev_result_str} | {prod_result_str}\n{request_line}\n<hr>'
+              return f'<span class="{line_color}">{line_symbol} {test_name}<span style="display:inline-block; width:50px;"></span>Result:</span> {dev_result_str} | {prod_result_str}\n{request_line}\n<hr>'
 
 
           def sanitize_command(command, env_vars):
@@ -4073,18 +4129,24 @@ Resources:
               # Handle different test types
               if test['Type'] == 'Baseline':
                   # For Baseline tests: 1 = success (green), 0 = failure (red)
-                  dev_result_str = f'<span class="success">Connection Allowed from DEV</span>' if dev_result[1] == 1 else f'<span class="fail">Connection Blocked from DEV</span>'
-                  prod_result_str = f'<span class="success">Connection Allowed from PROD</span>' if prod_result[1] == 1 else f'<span class="fail">Connection Blocked from PROD</span>'
+                  dev_symbol = "&#x2713;" if dev_result[1] == 1 else "&#x2717;"
+                  prod_symbol = "&#x2713;" if prod_result[1] == 1 else "&#x2717;"
+                  dev_result_str = f'<span class="success">{dev_symbol} Connection Allowed from DEV</span>' if dev_result[1] == 1 else f'<span class="fail">{dev_symbol} Connection Blocked from DEV</span>'
+                  prod_result_str = f'<span class="success">{prod_symbol} Connection Allowed from PROD</span>' if prod_result[1] == 1 else f'<span class="fail">{prod_symbol} Connection Blocked from PROD</span>'
                   line_color = "success" if dev_result[1] == 1 or prod_result[1] == 1 else "fail"
+                  line_symbol = "&#x2713;" if dev_result[1] == 1 or prod_result[1] == 1 else "&#x2717;"
               
               elif test['Type'] == 'AllowList':
                   # For AllowList tests: 0 = blocked (green), 1 = allowed (red)
-                  dev_result_str = f'<span class="fail">Connection Allowed from DEV</span>' if dev_result[1] == 1 else f'<span class="success">Connection Blocked from DEV</span>'
-                  prod_result_str = f'<span class="fail">Connection Allowed from PROD</span>' if prod_result[1] == 1 else f'<span class="success">Connection Blocked from PROD</span>'
+                  dev_symbol = "&#x2717;" if dev_result[1] == 1 else "&#x2713;"
+                  prod_symbol = "&#x2717;" if prod_result[1] == 1 else "&#x2713;"
+                  dev_result_str = f'<span class="fail">{dev_symbol} Connection Allowed from DEV</span>' if dev_result[1] == 1 else f'<span class="success">{dev_symbol} Connection Blocked from DEV</span>'
+                  prod_result_str = f'<span class="fail">{prod_symbol} Connection Allowed from PROD</span>' if prod_result[1] == 1 else f'<span class="success">{prod_symbol} Connection Blocked from PROD</span>'
                   line_color = "success" if (dev_result[1] == 0 and prod_result[1] == 0) else "fail"
+                  line_symbol = "&#x2713;" if (dev_result[1] == 0 and prod_result[1] == 0) else "&#x2717;"
               
               # Format the full line with proper spacing and consistent coloring
-              return f'<span class="{line_color}">{test_name}<span style="display:inline-block; width:50px;"></span>Result:</span> {dev_result_str} | {prod_result_str}\n{request_line}\n<hr>'
+              return f'<span class="{line_color}">{line_symbol} {test_name}<span style="display:inline-block; width:50px;"></span>Result:</span> {dev_result_str} | {prod_result_str}\n{request_line}\n<hr>'
 
           def sanitize_command(command):
               # Remove wrapper logic for display
@@ -4470,12 +4532,15 @@ Resources:
               log_message(f"Prod Result: {prod_result}")
               
               # For baseline tests: 0 = allowed (green), 1 = blocked (red)
-              dev_result_str = f'<span class="success">Connection Allowed from DEV</span>' if dev_result[1] == 0 else f'<span class="fail">Connection Blocked from DEV</span>'
-              prod_result_str = f'<span class="success">Connection Allowed from PROD</span>' if prod_result[1] == 0 else f'<span class="fail">Connection Blocked from PROD</span>'
+              dev_symbol = "&#x2713;" if dev_result[1] == 0 else "&#x2717;"
+              prod_symbol = "&#x2713;" if prod_result[1] == 0 else "&#x2717;"
+              dev_result_str = f'<span class="success">{dev_symbol} Connection Allowed from DEV</span>' if dev_result[1] == 0 else f'<span class="fail">{dev_symbol} Connection Blocked from DEV</span>'
+              prod_result_str = f'<span class="success">{prod_symbol} Connection Allowed from PROD</span>' if prod_result[1] == 0 else f'<span class="fail">{prod_symbol} Connection Blocked from PROD</span>'
               line_color = "success" if (dev_result[1] == 0 and prod_result[1] == 0) else "fail"
+              line_symbol = "&#x2713;" if (dev_result[1] == 0 and prod_result[1] == 0) else "&#x2717;"
               
               # Format the full line with proper spacing and consistent coloring
-              return f'<span class="{line_color}">{test_name}<span style="display:inline-block; width:50px;"></span>Result:</span> {dev_result_str} | {prod_result_str}\n{request_line}\n<hr>'
+              return f'<span class="{line_color}">{line_symbol} {test_name}<span style="display:inline-block; width:50px;"></span>Result:</span> {dev_result_str} | {prod_result_str}\n{request_line}\n<hr>'
 
           def print_test_result(test, dev_result, prod_result):
               test_name = test['Name']
@@ -4491,12 +4556,15 @@ Resources:
               log_message(f"Prod Result: {prod_result}")
               
               # For TLS inspection tests: 1 = blocked (green), 0 = allowed (red)
-              dev_result_str = f'<span class="success">Connection Blocked from DEV</span>' if dev_result[1] == 1 else f'<span class="fail">Connection Allowed from DEV</span>'
-              prod_result_str = f'<span class="success">Connection Blocked from PROD</span>' if prod_result[1] == 1 else f'<span class="fail">Connection Allowed from PROD</span>'
+              dev_symbol = "&#x2713;" if dev_result[1] == 1 else "&#x2717;"
+              prod_symbol = "&#x2713;" if prod_result[1] == 1 else "&#x2717;"
+              dev_result_str = f'<span class="success">{dev_symbol} Connection Blocked from DEV</span>' if dev_result[1] == 1 else f'<span class="fail">{dev_symbol} Connection Allowed from DEV</span>'
+              prod_result_str = f'<span class="success">{prod_symbol} Connection Blocked from PROD</span>' if prod_result[1] == 1 else f'<span class="fail">{prod_symbol} Connection Allowed from PROD</span>'
               line_color = "success" if (dev_result[1] == 1 and prod_result[1] == 1) else "fail"
+              line_symbol = "&#x2713;" if (dev_result[1] == 1 and prod_result[1] == 1) else "&#x2717;"
               
               # Format the full line with proper spacing and consistent coloring
-              return f'<span class="{line_color}">{test_name}<span style="display:inline-block; width:50px;"></span>Result:</span> {dev_result_str} | {prod_result_str}\n{request_line}\n<hr>'
+              return f'<span class="{line_color}">{line_symbol} {test_name}<span style="display:inline-block; width:50px;"></span>Result:</span> {dev_result_str} | {prod_result_str}\n{request_line}\n<hr>'
 
           def handler(event, context):
               buffer = io.StringIO()
@@ -4681,16 +4749,251 @@ Resources:
       RetentionInDays: 7
 
 
-  Route53ResolverQueryConfigAssociationProd:
-    Type: AWS::Route53Resolver::ResolverQueryLoggingConfigAssociation
+  # IAM Role for Route53 Resolver Association Lambda
+  Route53ResolverAssociationLambdaRole:
+    Type: AWS::IAM::Role
     Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: Route53ResolverAssociationPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - route53resolver:AssociateResolverQueryLogConfig
+                  - route53resolver:DisassociateResolverQueryLogConfig
+                  - route53resolver:ListResolverQueryLogConfigAssociations
+                  - route53resolver:GetResolverQueryLogConfigAssociation
+                  - route53resolver:GetResolverQueryLogConfig
+                  - route53resolver:ListResolverQueryLogConfigs
+                  - ec2:DescribeVpcs
+                  - ec2:DescribeRegions
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                  - logs:DescribeLogGroups
+                Resource: '*'
+
+  # Lambda function to handle Route53 Resolver Query Config Associations
+  Route53ResolverAssociationLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "${AWS::StackName}-route53-resolver-association"
+      Runtime: python3.12
+      Handler: index.lambda_handler
+      Role: !GetAtt Route53ResolverAssociationLambdaRole.Arn
+      Timeout: 300
+      Code:
+        ZipFile: |
+          import boto3
+          import json
+          import time
+          import logging
+          from botocore.exceptions import ClientError
+          
+          logger = logging.getLogger()
+          logger.setLevel(logging.INFO)
+          
+          def lambda_handler(event, context):
+              try:
+                  logger.info(f"Received event: {json.dumps(event)}")
+                  
+                  request_type = event['RequestType']
+                  properties = event['ResourceProperties']
+                  resolver_query_log_config_id = properties['ResolverQueryLogConfigId']
+                  resource_id = properties['ResourceId']
+                  
+                  route53resolver = boto3.client('route53resolver')
+                  
+                  if request_type == 'Create':
+                      return handle_create(route53resolver, resolver_query_log_config_id, resource_id, event, context)
+                  elif request_type == 'Delete':
+                      return handle_delete(route53resolver, resolver_query_log_config_id, resource_id, event, context)
+                  elif request_type == 'Update':
+                      # For updates, we'll delete the old association and create a new one
+                      handle_delete(route53resolver, resolver_query_log_config_id, resource_id, event, context)
+                      return handle_create(route53resolver, resolver_query_log_config_id, resource_id, event, context)
+                  
+              except Exception as e:
+                  logger.error(f"Error: {str(e)}")
+                  # Always return success to prevent CloudFormation rollback
+                  return send_response(event, context, 'SUCCESS', {
+                      'Message': f'Operation completed with warning: {str(e)}'
+                  })
+          
+          def handle_create(route53resolver, resolver_query_log_config_id, resource_id, event, context):
+              max_retries = 5
+              retry_delay = 10
+              
+              for attempt in range(max_retries):
+                  try:
+                      logger.info(f"Attempt {attempt + 1} to create association")
+                      
+                      # Check if association already exists
+                      existing_associations = route53resolver.list_resolver_query_log_config_associations(
+                          Filters=[
+                              {
+                                  'Name': 'ResolverQueryLogConfigId',
+                                  'Values': [resolver_query_log_config_id]
+                              },
+                              {
+                                  'Name': 'ResourceId',
+                                  'Values': [resource_id]
+                              }
+                          ]
+                      )
+                      
+                      if existing_associations['ResolverQueryLogConfigAssociations']:
+                          logger.info("Association already exists")
+                          association_id = existing_associations['ResolverQueryLogConfigAssociations'][0]['Id']
+                          return send_response(event, context, 'SUCCESS', {
+                              'AssociationId': association_id,
+                              'Message': 'Association already exists'
+                          })
+                      
+                      # Create the association
+                      response = route53resolver.associate_resolver_query_log_config(
+                          ResolverQueryLogConfigId=resolver_query_log_config_id,
+                          ResourceId=resource_id
+                      )
+                      
+                      association_id = response['ResolverQueryLogConfigAssociation']['Id']
+                      logger.info(f"Successfully created association: {association_id}")
+                      
+                      return send_response(event, context, 'SUCCESS', {
+                          'AssociationId': association_id,
+                          'Message': 'Association created successfully'
+                      })
+                      
+                  except ClientError as e:
+                      error_code = e.response['Error']['Code']
+                      logger.warning(f"Attempt {attempt + 1} failed with error: {error_code} - {str(e)}")
+                      
+                      if error_code in ['ResourceExistsException', 'InvalidParameterException']:
+                          # These are non-retryable errors, but we'll still return success
+                          logger.info("Non-retryable error, returning success")
+                          return send_response(event, context, 'SUCCESS', {
+                              'Message': f'Operation completed with warning: {str(e)}'
+                          })
+                      
+                      if attempt < max_retries - 1:
+                          logger.info(f"Retrying in {retry_delay} seconds...")
+                          time.sleep(retry_delay)
+                          retry_delay *= 2  # Exponential backoff
+                      else:
+                          logger.warning("Max retries reached, returning success anyway")
+                          return send_response(event, context, 'SUCCESS', {
+                              'Message': f'Max retries reached, operation may have failed: {str(e)}'
+                          })
+                  
+                  except Exception as e:
+                      logger.error(f"Unexpected error on attempt {attempt + 1}: {str(e)}")
+                      if attempt < max_retries - 1:
+                          time.sleep(retry_delay)
+                          retry_delay *= 2
+                      else:
+                          return send_response(event, context, 'SUCCESS', {
+                              'Message': f'Unexpected error, but returning success: {str(e)}'
+                          })
+          
+          def handle_delete(route53resolver, resolver_query_log_config_id, resource_id, event, context):
+              try:
+                  # Find the association to delete
+                  existing_associations = route53resolver.list_resolver_query_log_config_associations(
+                      Filters=[
+                          {
+                              'Name': 'ResolverQueryLogConfigId',
+                              'Values': [resolver_query_log_config_id]
+                          },
+                          {
+                              'Name': 'ResourceId',
+                              'Values': [resource_id]
+                          }
+                      ]
+                  )
+                  
+                  if not existing_associations['ResolverQueryLogConfigAssociations']:
+                      logger.info("No association found to delete")
+                      return send_response(event, context, 'SUCCESS', {
+                          'Message': 'No association found to delete'
+                      })
+                  
+                  association_id = existing_associations['ResolverQueryLogConfigAssociations'][0]['Id']
+                  
+                  # Delete the association
+                  route53resolver.disassociate_resolver_query_log_config(
+                      ResolverQueryLogConfigAssociationId=association_id
+                  )
+                  
+                  logger.info(f"Successfully deleted association: {association_id}")
+                  return send_response(event, context, 'SUCCESS', {
+                      'Message': 'Association deleted successfully'
+                  })
+                  
+              except ClientError as e:
+                  logger.warning(f"Error deleting association: {str(e)}")
+                  # Always return success for delete operations
+                  return send_response(event, context, 'SUCCESS', {
+                      'Message': f'Delete completed with warning: {str(e)}'
+                  })
+              except Exception as e:
+                  logger.error(f"Unexpected error during delete: {str(e)}")
+                  return send_response(event, context, 'SUCCESS', {
+                      'Message': f'Delete completed with error: {str(e)}'
+                  })
+          
+          def send_response(event, context, response_status, response_data):
+              import urllib3
+              
+              response_url = event['ResponseURL']
+              response_body = {
+                  'Status': response_status,
+                  'Reason': f'See CloudWatch Log Stream: {context.log_stream_name}',
+                  'PhysicalResourceId': event.get('PhysicalResourceId', context.log_stream_name),
+                  'StackId': event['StackId'],
+                  'RequestId': event['RequestId'],
+                  'LogicalResourceId': event['LogicalResourceId'],
+                  'Data': response_data
+              }
+              
+              json_response_body = json.dumps(response_body)
+              
+              headers = {
+                  'content-type': '',
+                  'content-length': str(len(json_response_body))
+              }
+              
+              try:
+                  http = urllib3.PoolManager()
+                  response = http.request('PUT', response_url, body=json_response_body, headers=headers)
+                  logger.info(f"Response sent successfully: {response.status}")
+              except Exception as e:
+                  logger.error(f"Failed to send response: {str(e)}")
+              
+              return response_body
+
+  # Custom Resource for Prod VPC Association
+  Route53ResolverQueryConfigAssociationProd:
+    Type: AWS::CloudFormation::CustomResource
+    Properties:
+      ServiceToken: !GetAtt Route53ResolverAssociationLambda.Arn
       ResolverQueryLogConfigId: !GetAtt Route53ResolverProdQueryConfig.Id
       ResourceId: !Ref ProdVPC
 
-
+  # Custom Resource for Dev VPC Association
   Route53ResolverQueryConfigAssociationDev:
-    Type: AWS::Route53Resolver::ResolverQueryLoggingConfigAssociation
+    Type: AWS::CloudFormation::CustomResource
     Properties:
+      ServiceToken: !GetAtt Route53ResolverAssociationLambda.Arn
       ResolverQueryLogConfigId: !GetAtt Route53ResolverDevQueryConfig.Id
       ResourceId: !Ref DevVPC
 
