@@ -8,7 +8,7 @@
 #CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 AWSTemplateFormatVersion: "2010-09-09"
-Description: "AWS Network Firewall Demo with Transit Gateway native attached network firewall architecture"
+Description: "AWS Network Firewall Demo with Transit Gateway native attached network firewall architecture (uksb-h57rukg0qz)"
 
 Metadata:
   "AWS::CloudFormation::Interface":
@@ -39,7 +39,7 @@ Parameters:
     Default: '/aws/service/ami-amazon-linux-latest/amzn2-ami-kernel-5.10-hvm-x86_64-gp2'
       
 Resources:
-# prod VPC (renamed from SpokeVPCA)
+
   ProdVPC:
     Type: AWS::EC2::VPC
     Properties:
@@ -909,8 +909,7 @@ Resources:
           else
             echo "WARNING: Certificate not available after 30 attempts. Continuing without TLS inspection certificate."
           fi
-      
-# dev VPC (renamed from SpokeVPCB)
+
   DevVPC:
     Type: AWS::EC2::VPC
     Properties:
