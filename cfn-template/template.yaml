@@ -909,7 +909,7 @@ Resources:
           else
             echo "WARNING: Certificate not available after 30 attempts. Continuing without TLS inspection certificate."
           fi
-
+      
   DevVPC:
     Type: AWS::EC2::VPC
     Properties:
@@ -3310,13 +3310,6 @@ Resources:
     Properties:
       AuthType: AWS_IAM
       TargetFunctionArn: !GetAtt DevToPRODTesterScript.Arn
-      Cors:
-        AllowOrigins:
-          - "*"
-        AllowMethods:
-          - GET
-          - POST
-        MaxAge: 86400
 
   # Allow Manual Scanner Lambda to be invoked from CloudFront via OAC
   DevToPRODTesterScriptPermissionPolicy:
@@ -3967,13 +3960,6 @@ Resources:
     Properties:
       AuthType: AWS_IAM
       TargetFunctionArn: !GetAtt EgressTesterScript.Arn
-      Cors:
-        AllowOrigins:
-          - "*"
-        AllowMethods:
-          - GET
-          - POST
-        MaxAge: 86400
 
   # Allow Manual Scanner Lambda to be invoked from CloudFront via OAC
   EgressTesterScriptPermissionPolicy:
@@ -4376,13 +4362,6 @@ Resources:
     Properties:
       AuthType: AWS_IAM
       TargetFunctionArn: !GetAtt AllowListTesterScript.Arn
-      Cors:
-        AllowOrigins:
-          - "*"
-        AllowMethods:
-          - GET
-          - POST
-        MaxAge: 86400
 
   # Allow AllowList Tester Lambda to be invoked from CloudFront via OAC
   AllowListTesterScriptPermissionPolicy:
@@ -4736,13 +4715,6 @@ Resources:
     Properties:
       AuthType: AWS_IAM
       TargetFunctionArn: !GetAtt TLSInspectionTesterScript.Arn
-      Cors:
-        AllowOrigins:
-          - "*"
-        AllowMethods:
-          - GET
-          - POST
-        MaxAge: 86400
 
   # Allow TLS Inspection Tester Lambda to be invoked from CloudFront via OAC
   TLSInspectionTesterScriptPermissionPolicy:
