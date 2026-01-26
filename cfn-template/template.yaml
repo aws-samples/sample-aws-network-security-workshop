@@ -8,7 +8,7 @@
 #CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 AWSTemplateFormatVersion: "2010-09-09"
-Description: "AWS Network Firewall Demo with Transit Gateway native attached network firewall architecture (uksb-h57rukg0qz)"
+Description: "AWS Network Firewall Demo with Transit Gateway native attached network firewall architecture"
 
 Metadata:
   "AWS::CloudFormation::Interface":
@@ -39,7 +39,7 @@ Parameters:
     Default: '/aws/service/ami-amazon-linux-latest/amzn2-ami-kernel-5.10-hvm-x86_64-gp2'
       
 Resources:
-
+# prod VPC (renamed from SpokeVPCA)
   ProdVPC:
     Type: AWS::EC2::VPC
     Properties:
@@ -909,7 +909,8 @@ Resources:
           else
             echo "WARNING: Certificate not available after 30 attempts. Continuing without TLS inspection certificate."
           fi
-
+      
+# dev VPC (renamed from SpokeVPCB)
   DevVPC:
     Type: AWS::EC2::VPC
     Properties:
@@ -1635,6 +1636,7 @@ Resources:
       Tags:
         - Key: Name
           Value: "egress-and-east-west-firewall-policy"
+
 
   EgressFirewall:
     Type: AWS::NetworkFirewall::Firewall
@@ -3309,6 +3311,13 @@ Resources:
     Properties:
       AuthType: AWS_IAM
       TargetFunctionArn: !GetAtt DevToPRODTesterScript.Arn
+      Cors:
+        AllowOrigins:
+          - "*"
+        AllowMethods:
+          - GET
+          - POST
+        MaxAge: 86400
 
   # Allow Manual Scanner Lambda to be invoked from CloudFront via OAC
   DevToPRODTesterScriptPermissionPolicy:
@@ -3320,6 +3329,15 @@ Resources:
     Type: AWS::Lambda::Permission
     Properties:
       Action: lambda:InvokeFunctionUrl
+      FunctionName: !Ref DevToPRODTesterScript
+      Principal: cloudfront.amazonaws.com
+      FunctionUrlAuthType: AWS_IAM
+      SourceArn: !Sub arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${TestScriptDistribution}
+
+  DevToPRODTesterScriptInvokeFunctionPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
       FunctionName: !Ref DevToPRODTesterScript
       Principal: cloudfront.amazonaws.com
       SourceArn: !Sub arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${TestScriptDistribution}
@@ -3950,6 +3968,13 @@ Resources:
     Properties:
       AuthType: AWS_IAM
       TargetFunctionArn: !GetAtt EgressTesterScript.Arn
+      Cors:
+        AllowOrigins:
+          - "*"
+        AllowMethods:
+          - GET
+          - POST
+        MaxAge: 86400
 
   # Allow Manual Scanner Lambda to be invoked from CloudFront via OAC
   EgressTesterScriptPermissionPolicy:
@@ -3961,6 +3986,15 @@ Resources:
     Type: AWS::Lambda::Permission
     Properties:
       Action: lambda:InvokeFunctionUrl
+      FunctionName: !Ref EgressTesterScript
+      Principal: cloudfront.amazonaws.com
+      FunctionUrlAuthType: AWS_IAM
+      SourceArn: !Sub arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${TestScriptDistribution}
+
+  EgressTesterScriptInvokeFunctionPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
       FunctionName: !Ref EgressTesterScript
       Principal: cloudfront.amazonaws.com
       SourceArn: !Sub arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${TestScriptDistribution}
@@ -4343,6 +4377,13 @@ Resources:
     Properties:
       AuthType: AWS_IAM
       TargetFunctionArn: !GetAtt AllowListTesterScript.Arn
+      Cors:
+        AllowOrigins:
+          - "*"
+        AllowMethods:
+          - GET
+          - POST
+        MaxAge: 86400
 
   # Allow AllowList Tester Lambda to be invoked from CloudFront via OAC
   AllowListTesterScriptPermissionPolicy:
@@ -4354,6 +4395,15 @@ Resources:
     Type: AWS::Lambda::Permission
     Properties:
       Action: lambda:InvokeFunctionUrl
+      FunctionName: !Ref AllowListTesterScript
+      Principal: cloudfront.amazonaws.com
+      FunctionUrlAuthType: AWS_IAM
+      SourceArn: !Sub arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${TestScriptDistribution}
+
+  AllowListTesterScriptInvokeFunctionPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
       FunctionName: !Ref AllowListTesterScript
       Principal: cloudfront.amazonaws.com
       SourceArn: !Sub arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${TestScriptDistribution}
@@ -4687,6 +4737,13 @@ Resources:
     Properties:
       AuthType: AWS_IAM
       TargetFunctionArn: !GetAtt TLSInspectionTesterScript.Arn
+      Cors:
+        AllowOrigins:
+          - "*"
+        AllowMethods:
+          - GET
+          - POST
+        MaxAge: 86400
 
   # Allow TLS Inspection Tester Lambda to be invoked from CloudFront via OAC
   TLSInspectionTesterScriptPermissionPolicy:
@@ -4698,6 +4755,15 @@ Resources:
     Type: AWS::Lambda::Permission
     Properties:
       Action: lambda:InvokeFunctionUrl
+      FunctionName: !Ref TLSInspectionTesterScript
+      Principal: cloudfront.amazonaws.com
+      FunctionUrlAuthType: AWS_IAM
+      SourceArn: !Sub arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${TestScriptDistribution}
+
+  TLSInspectionTesterScriptInvokeFunctionPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
       FunctionName: !Ref TLSInspectionTesterScript
       Principal: cloudfront.amazonaws.com
       SourceArn: !Sub arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${TestScriptDistribution}
