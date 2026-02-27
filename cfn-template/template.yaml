@@ -39,7 +39,7 @@ Parameters:
     Default: '/aws/service/ami-amazon-linux-latest/amzn2-ami-kernel-5.10-hvm-x86_64-gp2'
       
 Resources:
-
+# prod VPC (renamed from SpokeVPCA)
   ProdVPC:
     Type: AWS::EC2::VPC
     Properties:
@@ -910,6 +910,7 @@ Resources:
             echo "WARNING: Certificate not available after 30 attempts. Continuing without TLS inspection certificate."
           fi
       
+# dev VPC (renamed from SpokeVPCB)
   DevVPC:
     Type: AWS::EC2::VPC
     Properties:
@@ -1959,6 +1960,7 @@ Resources:
   # Route all inspection VPC traffic to egress VPC
   InspectionToEgressRoute:
     Type: AWS::EC2::TransitGatewayRoute
+    DependsOn: AssociateInspectionVPCRouteTable
     Properties:
       DestinationCidrBlock: "0.0.0.0/0"
       TransitGatewayAttachmentId: !Ref AttachEgressVPC
@@ -3838,6 +3840,11 @@ Resources:
                       'Name': 'Network Firewall Geographic IP Filtering - Traffic to/from anywhere outside the US or Canada',
                       'Type': 'Egress',
                       'Command': "curl -k -I -s https://leclaireur.fnac.com/ --connect-timeout 1 --max-time 2"
+                  },
+                  {
+                      'Name': 'Network Firewall URL Category - Artificial Intelligence and Machine Learning',
+                      'Type': 'Egress',
+                      'Command': "curl -k -I -s https://chatgpt.com/ --connect-timeout 1 --max-time 2"
                   },
                   {
                       'Name': 'Network Firewall Active Threat Defense - Amazon Threat Intelligence',
